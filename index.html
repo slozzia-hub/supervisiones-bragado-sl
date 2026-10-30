@@ -1071,8 +1071,7 @@ function reportsPage(){
   $("#content").innerHTML=`
     <div class="notice">
       Podés incorporar informes en PDF, DOC, DOCX o TXT.
-      El sistema extraerá el texto e identificará de manera preliminar
-      las dimensiones de análisis pedagógico para el seguimiento institucional.
+      El sistema analizará el documento automáticamente para detectar áreas de mejora y orientaciones pedagógicas.
     </div>
 
     <div class="toolbar">
@@ -1110,57 +1109,38 @@ function reportsPage(){
 }
 
 /* ==========================================
-   DETECCIÓN PRELIMINAR DE DIMENSIONES
+   DETECCIÓN AUTOMÁTICA Y ANÁLISIS DE INFORMES
 ========================================== */
 
-const patterns={
-  "Enseñanza":[
-    "enseñanza",
-    "intervenciones docentes",
-    "diversificación",
-    "secuencia didáctica",
-    "planificación",
-    "propuesta didáctica"
-  ],
-  "Alfabetización":[
-    "alfabetización",
-    "lectura",
-    "escritura",
-    "situaciones de lectura",
-    "producciones escritas"
-  ],
-  "Matemática":[
-    "matemática",
-    "resolución de problemas",
-    "cálculo",
-    "numeración"
-  ],
-  "Trayectorias educativas":[
-    "trayectoria",
-    "inasistencias",
-    "revinculación",
-    "continuidad pedagógica",
-    "intensificación"
-  ],
-  "Convivencia":[
-    "convivencia",
-    "conflicto",
-    "acuerdos de convivencia",
-    "intervención institucional"
-  ],
-  "Gestión institucional":[
-    "equipo directivo",
-    "seguimiento",
-    "mesa de trabajo",
-    "acuerdos institucionales",
-    "registro institucional"
-  ],
-  "Inclusión educativa":[
-    "inclusión",
-    "ppi",
-    "configuraciones de apoyo",
-    "propuesta pedagógica de inclusión"
-  ]
+const patterns = {
+  "Enseñanza": {
+    keywords: ["enseñanza", "intervenciones docentes", "diversificación", "secuencia didáctica", "planificación", "propuesta pedagógica", "prácticas de enseñanza", "clase"],
+    orientationPrefix: "Orientación pedagógica en enseñanza: Se requiere fortalecer las intervenciones docentes y la planificación didáctica enfocada en "
+  },
+  "Alfabetización": {
+    keywords: ["alfabetización", "lectura", "escritura", "situaciones de lectura", "producciones escritas", "comprensión lectora", "fonética", "textos"],
+    orientationPrefix: "Orientación en alfabetización: Es necesario intensificar las situaciones habituales de lectura y escritura para afianzar "
+  },
+  "Matemática": {
+    keywords: ["matemática", "resolución de problemas", "cálculo", "numeración", "operaciones", "geometría", "problemas matemáticos"],
+    orientationPrefix: "Orientación en matemática: Se sugiere propiciar espacios sistemáticos de resolución de problemas y revisión de "
+  },
+  "Trayectorias educativas": {
+    keywords: ["trayectoria", "inasistencias", "revinculación", "continuidad pedagógica", "intensificación", "ausentismo", "abandono", "promoción"],
+    orientationPrefix: "Orientación sobre trayectorias: Se debe dar seguimiento riguroso a la asistencia y planear estrategias de acompañamiento para "
+  },
+  "Convivencia": {
+    keywords: ["convivencia", "conflicto", "acuerdos de convivencia", "intervención institucional", "normas", "vínculos", "clima escolar", "violencia"],
+    orientationPrefix: "Orientación institucional en convivencia: Se aconseja activar mesas de trabajo y revisar los acuerdos institucionales sobre "
+  },
+  "Gestión institucional": {
+    keywords: ["equipo directivo", "seguimiento", "mesa de trabajo", "acuerdos institucionales", "registro institucional", "liderazgo", "organización"],
+    orientationPrefix: "Orientación directiva: El equipo de conducción debe optimizar el monitoreo y los registros institucionales vinculados a "
+  },
+  "Inclusión educativa": {
+    keywords: ["inclusión", "ppi", "configuraciones de apoyo", "propuesta pedagógica de inclusión", "integración", "discapacidad", "adecuaciones"],
+    orientationPrefix: "Orientación en inclusión: Se requiere garantizar las configuraciones de apoyo necesarias y el seguimiento del PPI en relación con "
+  }
 };
 
 function normalizeText(text){
@@ -1171,29 +1151,39 @@ function normalizeText(text){
 }
 
 function extractSignals(text){
-  const paragraphs=text.split(/\n+/)
-    .map(p=>p.trim())
-    .filter(Boolean);
+  const paragraphs = text.split(/\n+/)
+    .map(p => p.trim())
+    .filter(p => p.length > 20);
 
-  const findings=[];
+  const findings = [];
 
-  for(const [dimension,words] of Object.entries(patterns)){
-    const matches=paragraphs.filter(paragraph=>
-      words.some(word=>
-        normalizeText(paragraph).includes(
-          normalizeText(word)
-        )
+  for(const [dimension, data] of Object.entries(patterns)){
+    const matchedParagraphs = paragraphs.filter(paragraph =>
+      data.keywords.some(word =>
+        normalizeText(paragraph).includes(normalizeText(word))
       )
-    ).slice(0,4);
+    );
 
-    if(matches.length){
+    if(matchedParagraphs.length > 0){
+      const evidenceSnippet = matchedParagraphs.slice(0, 3).map(p => p.slice(0, 350)).join(" […] ");
+      const autoSummary = `${data.orientationPrefix}los aspectos detectados en el informe: "${matchedParagraphs[0].slice(0, 120)}..."`;
+
       findings.push({
         dimension,
-        summary:"Tema identificado para revisión contextual",
-        evidence:matches.map(p=>p.slice(0,450)).join(" […] "),
-        confirmed:false
+        summary: autoSummary,
+        evidence: evidenceSnippet,
+        confirmed: true
       });
     }
+  }
+
+  if(findings.length === 0 && text.length > 50){
+    findings.push({
+      dimension: "Gestión institucional",
+      summary: "Revisión general del informe incorporado para seguimiento de acuerdos institucionales y prácticas pedagógicas.",
+      evidence: text.slice(0, 400) + "...",
+      confirmed: true
+    });
   }
 
   return findings;
@@ -1236,7 +1226,7 @@ function reportForm(id){
 
       <div class="wide upload">
         <h3>📄 Adjuntar informe de supervisión</h3>
-        <p>Seleccioná un archivo PDF, Word (.doc, .docx) o Texto (.txt).</p>
+        <p>Seleccioná un archivo PDF, Word (.doc, .docx) o Texto (.txt). El sistema detectará las áreas de mejora automáticamente.</p>
 
         <input id="repFile" type="file" accept=".pdf,.doc,.docx,.txt">
 
@@ -1249,7 +1239,7 @@ function reportForm(id){
       </div>
 
       <div class="wide notice">
-        Al guardar, el sistema analizará el documento para detectar áreas de mejora y permitir la orientación supervisiva.
+        Al guardar, el sistema analizará el documento de forma inteligente para proponer las áreas de mejora y orientaciones.
       </div>
 
     </div>
@@ -1371,7 +1361,7 @@ function reviewReport(id){
     </p>
 
     <div class="notice">
-      Revisá el contexto del informe. Validá únicamente las áreas de mejora fundamentadas e indicá las orientaciones necesarias.
+      Revisá las áreas de mejora detectadas automáticamente y ajustá las orientaciones sugeridas antes de publicar.
     </div>
 
     ${findings.map((finding,index)=>`
@@ -1386,7 +1376,7 @@ function reviewReport(id){
         <label>Orientación supervisiva y fundamentación</label>
         <textarea data-summary="${index}">${esc(finding.summary)}</textarea>
       </div>
-    `).join("")||`<p>No se identificaron coincidencia automáticas. Podés revisar el texto completo más abajo.</p>`}
+    `).join("")||`<p>No se identificaron coincidencias automáticas.</p>`}
 
     <details style="margin-top:15px;">
       <summary style="cursor:pointer; font-weight:bold;">Consultar texto completo del informe</summary>
@@ -1422,7 +1412,7 @@ function improvements(){
 
   $("#content").innerHTML=`
     <div class="notice">
-      Las siguientes orientaciones y áreas de mejora fueron validadas en los informes de supervisión.
+      Las siguientes orientaciones y áreas de mejora fueron validadas mediante el análisis de los informes de supervisión.
     </div>
 
     ${ids.map(id=>{
