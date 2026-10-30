@@ -1,10 +1,13 @@
-
 <!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SISE | Sistema Integral de Supervisión Educativa</title>
+
+<!-- Librerías para procesar PDF y DOCX -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
 
 <style>
 :root {
@@ -51,7 +54,7 @@ button.secondary {
   color:var(--primary);
 }
 
-button.danger { background:var(--danger); }
+button.danger { background:var(--danger); color: white; }
 
 input,select,textarea {
   width:100%;
@@ -156,6 +159,8 @@ label {
   text-align:left;
   padding:22px;
   min-height:150px;
+  cursor: pointer;
+  border-radius: 8px;
 }
 
 .schoolcard strong {
@@ -310,8 +315,7 @@ pre {
     <input id="email" type="email" required autocomplete="username">
 
     <label for="password">Contraseña</label>
-    <input id="password" type="password" required
-           autocomplete="current-password">
+    <input id="password" type="password" required autocomplete="current-password">
 
     <div class="actions">
       <button type="submit">Ingresar</button>
@@ -370,9 +374,7 @@ pre {
         Guardar
       </button>
 
-      <button type="button"
-              class="secondary"
-              id="cancel">
+      <button type="button" class="secondary" id="cancel">
         Cancelar
       </button>
     </div>
@@ -384,8 +386,10 @@ pre {
 <script src="config.js?v=6"></script>
 
 <script type="module">
-import {createClient} from
-"https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+import {createClient} from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
+// Configurar Worker de PDF.js
+pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
 const cfg=window.SISE_CONFIG||{};
 
@@ -406,12 +410,11 @@ const esc=value=>String(value??"").replace(
   })[character]
 );
 
-const today=()=>new Date().toLocaleDateString("en-CA");
+const today=()=>new Date().toISOString().split("T")[0];
 
 function pretty(date){
   if(!date)return "—";
-  return new Date(date+"T12:00:00")
-    .toLocaleDateString("es-AR");
+  return new Date(date+"T12:00:00").toLocaleDateString("es-AR");
 }
 
 let user=null;
@@ -446,29 +449,10 @@ const labels={
 const columns={
   visits:["visit_date","title","visit_type","guidance"],
   incidents:["incident_date","category","severity","status"],
-  metrics:[
-    "period",
-    "enrollment",
-    "attendance_pct",
-    "chronic_absence_count"
-  ],
-  strikes:[
-    "strike_date",
-    "total_teachers",
-    "adhering_teachers",
-    "affected_sections"
-  ],
-  agreements:[
-    "title",
-    "dimension",
-    "due_date",
-    "status"
-  ],
-  documents:[
-    "title",
-    "document_type",
-    "created_at"
-  ]
+  metrics:["period","enrollment","attendance_pct","chronic_absence_count"],
+  strikes:["strike_date","total_teachers","adhering_teachers","affected_sections"],
+  agreements:["title","dimension","due_date","status"],
+  documents:["title","document_type","created_at"]
 };
 
 const fieldLabels={
@@ -508,7 +492,7 @@ function canEdit(){
 }
 
 function canManageSchools(){
-  return role==="admin";
+  return role==="admin"||role==="inspector";
 }
 
 function schoolName(id){
@@ -551,7 +535,8 @@ async function load(){
         .select("*");
 
       if(error){
-        throw Error(table+": "+error.message);
+        console.warn(table+": "+error.message);
+        return [table, []];
       }
 
       return [table,rows||[]];
@@ -765,7 +750,7 @@ function schoolManagement(){
         ?`<button id="addSchool">+ Agregar escuela</button>`
         :`<p class="muted">
           La modificación de escuelas requiere
-          permisos de administración.
+          permisos de administración o supervisión.
         </p>`
       }
     </div>
@@ -782,7 +767,7 @@ function schoolManagement(){
 
             <div class="muted small">
               ${esc(s.locality||"Sin localidad")}
-              · Dirección:
+              · Dirección/Directivo:
               ${esc(s.director||"Sin registrar")}
             </div>
           </div>
@@ -796,6 +781,9 @@ function schoolManagement(){
             ${canManageSchools()
               ?`<button data-edit-school="${s.id}">
                   Editar
+                </button>
+                <button class="danger" data-delete-school="${s.id}">
+                  Eliminar
                 </button>`
               :""
             }
@@ -809,30 +797,25 @@ function schoolManagement(){
     </div>
   `;
 
-  $("#addSchool")?.addEventListener(
-    "click",
-    ()=>schoolForm()
-  );
+  $("#addSchool")?.addEventListener("click", ()=>schoolForm());
 
-  $("#content")
-    .querySelectorAll("[data-edit-school]")
-    .forEach(button=>{
-      button.onclick=()=>schoolForm(
-        schools.find(s=>s.id===button.dataset.editSchool)
-      );
-    });
+  $("#content").querySelectorAll("[data-edit-school]").forEach(button=>{
+    button.onclick=()=>schoolForm(schools.find(s=>s.id===button.dataset.editSchool));
+  });
 
-  $("#content")
-    .querySelectorAll("[data-open-school]")
-    .forEach(button=>{
-      button.onclick=()=>{
-        filter=button.dataset.openSchool;
-        selectedSchool=filter;
-        $("#schoolFilter").value=filter;
-        page="schools";
-        render();
-      };
-    });
+  $("#content").querySelectorAll("[data-delete-school]").forEach(button=>{
+    button.onclick=()=>deleteSchool(button.dataset.deleteSchool);
+  });
+
+  $("#content").querySelectorAll("[data-open-school]").forEach(button=>{
+    button.onclick=()=>{
+      filter=button.dataset.openSchool;
+      selectedSchool=filter;
+      $("#schoolFilter").value=filter;
+      page="schools";
+      render();
+    };
+  });
 }
 
 function schoolForm(record=null){
@@ -848,12 +831,12 @@ function schoolForm(record=null){
     :"Agregar escuela de mi área";
 
   const fields=[
-    ["code","Código de escuela (Ej.: EP 7)",true],
+    ["code","Número / Código de escuela (Ej.: EP N° 7)",true],
     ["name","Nombre de la institución",true],
-    ["locality","Localidad",false],
+    ["locality","Localidad / Distrito",false],
     ["address","Domicilio",false],
     ["shifts","Turnos",false],
-    ["director","Director/a",false],
+    ["director","Director/a o Equipo Directivo",false],
     ["sections","Cantidad de secciones",false],
     ["notes","Observaciones institucionales",false]
   ];
@@ -865,15 +848,11 @@ function schoolForm(record=null){
           <label>${esc(label)}</label>
 
           ${key==="notes"
-            ?`<textarea name="${key}">${
-                esc(record?.[key]||"")
-              }</textarea>`
+            ?`<textarea name="${key}">${esc(record?.[key]||"")}</textarea>`
             :`<input
                 name="${key}"
                 type="${key==="sections"?"number":"text"}"
-                ${key==="sections"
-                  ?'min="0" step="1"'
-                  :""}
+                ${key==="sections"?'min="0" step="1"':""}
                 value="${esc(record?.[key]??"")}"
                 ${required?"required":""}
               >`
@@ -888,7 +867,7 @@ function schoolForm(record=null){
 
 async function saveSchool(){
   if(!canManageSchools()){
-    throw Error("No tenés permisos de administración.");
+    throw Error("No tenés permisos para gestionar escuelas.");
   }
 
   const values=Object.fromEntries(
@@ -899,35 +878,38 @@ async function saveSchool(){
   values.name=values.name.trim();
 
   if(!values.code||!values.name){
-    throw Error("Completá el código y el nombre.");
+    throw Error("Completá el número/código y el nombre.");
   }
 
-  values.sections=values.sections===""
-    ?null
-    :Number(values.sections);
+  values.sections=values.sections===""?null:Number(values.sections);
 
-  for(const key of [
-    "locality",
-    "address",
-    "shifts",
-    "director",
-    "notes"
-  ]){
+  for(const key of ["locality","address","shifts","director","notes"]){
     values[key]=values[key]?.trim()||null;
   }
 
   const record=modalAction.record;
 
   const query=record
-    ?sb.from("schools")
-       .update(values)
-       .eq("id",record.id)
-    :sb.from("schools")
-       .insert(values);
+    ?sb.from("schools").update(values).eq("id",record.id)
+    :sb.from("schools").insert(values);
 
   const {error}=await query;
-
   if(error)throw error;
+}
+
+async function deleteSchool(id){
+  const school = schools.find(s=>s.id===id);
+  if(!school) return;
+
+  if(confirm(`¿Estás seguro de que querés eliminar la escuela "${school.code} - ${school.name}"? Se perderá la vinculación de sus legajos.`)){
+    const {error} = await sb.from("schools").delete().eq("id", id);
+    if(error){
+      notify("Error al eliminar: " + error.message);
+    } else {
+      notify("Escuela eliminada con éxito.");
+      await load();
+    }
+  }
 }
 
 /* ==========================================
@@ -947,22 +929,15 @@ function schoolFolders(){
 
     <div class="schoolgrid">
       ${list.map(s=>`
-        <button class="schoolcard"
-                data-school="${s.id}">
+        <button class="schoolcard" data-school="${s.id}">
           <span style="font-size:30px">📁</span>
-
           <strong>${esc(s.code)}</strong>
-
           <span>${esc(s.name)}</span>
-
           <p class="muted small">
-            ${reportsFor(s.id).length}
-            informes de supervisión
+            ${reportsFor(s.id).length} informes de supervisión
           </p>
-
           <p class="muted small">
-            ${findingsFor(s.id).length}
-            áreas de mejora validadas
+            ${findingsFor(s.id).length} áreas de mejora validadas
           </p>
         </button>
       `).join("")}
@@ -971,17 +946,11 @@ function schoolFolders(){
     <div id="schoolDetail"></div>
   `;
 
-  $("#content")
-    .querySelectorAll("[data-school]")
-    .forEach(button=>{
-      button.onclick=()=>
-        schoolDetail(button.dataset.school);
-    });
+  $("#content").querySelectorAll("[data-school]").forEach(button=>{
+    button.onclick=()=>schoolDetail(button.dataset.school);
+  });
 
-  if(
-    selectedSchool&&
-    list.some(s=>s.id===selectedSchool)
-  ){
+  if(selectedSchool && list.some(s=>s.id===selectedSchool)){
     schoolDetail(selectedSchool);
   }else if(filter!=="all"){
     schoolDetail(filter);
@@ -1011,165 +980,80 @@ function schoolDetail(id){
   $("#schoolDetail").innerHTML=`
     <section class="panel" style="margin-top:22px">
 
-      <h2>
-        📁 Legajo ${esc(school.code)}
-        · ${esc(school.name)}
-      </h2>
+      <h2>📁 Legajo ${esc(school.code)} · ${esc(school.name)}</h2>
 
-      <p>
-        <b>Localidad:</b>
-        ${esc(school.locality||"Sin registrar")}
-      </p>
-
-      <p>
-        <b>Dirección:</b>
-        ${esc(school.director||"Sin registrar")}
-      </p>
-
-      <p>
-        <b>Turnos:</b>
-        ${esc(school.shifts||"Sin registrar")}
-      </p>
+      <p><b>Localidad:</b> ${esc(school.locality||"Sin registrar")}</p>
+      <p><b>Dirección/Directivo:</b> ${esc(school.director||"Sin registrar")}</p>
+      <p><b>Turnos:</b> ${esc(school.shifts||"Sin registrar")}</p>
 
       <div class="toolbar">
         ${canEdit()
-          ?`<button id="addReport">
-              + Cargar informe PDF / Word
-            </button>`
+          ?`<button id="addReport">+ Cargar informe PDF / Word</button>`
           :""
         }
-
-        <button class="secondary"
-          data-go="metrics">
-          Matrícula y asistencia
-        </button>
-
-        <button class="secondary"
-          data-go="agreements">
-          Acuerdos
-        </button>
-
-        <button class="secondary"
-          data-go="incidents">
-          Convivencia
-        </button>
+        <button class="secondary" data-go="metrics">Matrícula y asistencia</button>
+        <button class="secondary" data-go="agreements">Acuerdos</button>
+        <button class="secondary" data-go="incidents">Convivencia</button>
       </div>
 
-      <h3>
-        Informes de supervisión (${reports.length})
-      </h3>
+      <h3>Informes de supervisión (${reports.length})</h3>
 
       ${reports.map(report=>`
         <div class="row">
           <div>
             <b>${esc(report.title)}</b>
-
             <div class="muted small">
-              ${pretty(report.report_date)}
-              ·
-              ${esc(
-                report.source_filename||
-                "Informe incorporado como texto"
-              )}
+              ${pretty(report.report_date)} · ${esc(report.source_filename||"Informe incorporado como texto")}
             </div>
           </div>
 
-          <button class="secondary"
-            data-review="${report.id}">
+          <button class="secondary" data-review="${report.id}">
             Analizar / revisar
           </button>
         </div>
-      `).join("")||`
-        <p class="muted">
-          Todavía no hay informes cargados.
-        </p>
-      `}
+      `).join("")||`<p class="muted">Todavía no hay informes cargados.</p>`}
 
-      <h3>
-        Áreas de mejora validadas
-        (${findings.length})
-      </h3>
+      <h3>Áreas de mejora validadas (${findings.length})</h3>
 
       ${findings.map(f=>`
         <div class="review">
-          <span class="pill">
-            ${esc(f.dimension)}
-          </span>
-
+          <span class="pill">${esc(f.dimension)}</span>
           <p>${esc(f.summary)}</p>
-
-          <small>
-            Fuente: ${esc(f.report.title)}
-          </small>
+          <small>Fuente: ${esc(f.report.title)}</small>
         </div>
-      `).join("")||`
-        <p class="muted">
-          No hay áreas de mejora validadas.
-        </p>
-      `}
+      `).join("")||`<p class="muted">No hay áreas de mejora validadas.</p>`}
 
       <h3>Seguimiento institucional</h3>
-
-      <p>
-        Visitas: ${visits.length}
-        · Convivencia: ${incidents.length}
-        · Paros: ${strikes.length}
-      </p>
+      <p>Visitas: ${visits.length} · Convivencia: ${incidents.length} · Paros: ${strikes.length}</p>
 
       <h3>Acuerdos</h3>
-
       ${agreements.map(a=>`
-        <p>
-          ${esc(a.title)}
-          <span class="pill">
-            ${esc(a.status)}
-          </span>
-        </p>
-      `).join("")||`
-        <p class="muted">
-          Sin acuerdos registrados.
-        </p>
-      `}
+        <p>${esc(a.title)} <span class="pill">${esc(a.status)}</span></p>
+      `).join("")||`<p class="muted">Sin acuerdos registrados.</p>`}
 
       <h3>Últimos indicadores</h3>
-
       ${metrics[0]
-        ?`<p>
-            Matrícula:
-            ${esc(metrics[0].enrollment)}
-            · Asistencia:
-            ${esc(metrics[0].attendance_pct)}%
-          </p>`
-        :`<p class="muted">
-            Sin indicadores registrados.
-          </p>`
+        ?`<p>Matrícula: ${esc(metrics[0].enrollment)} · Asistencia: ${esc(metrics[0].attendance_pct)}%</p>`
+        :`<p class="muted">Sin indicadores registrados.</p>`
       }
 
     </section>
   `;
 
-  $("#addReport")?.addEventListener(
-    "click",
-    ()=>reportForm(id)
-  );
+  $("#addReport")?.addEventListener("click", ()=>reportForm(id));
 
-  $("#schoolDetail")
-    .querySelectorAll("[data-review]")
-    .forEach(button=>{
-      button.onclick=()=>
-        reviewReport(button.dataset.review);
-    });
+  $("#schoolDetail").querySelectorAll("[data-review]").forEach(button=>{
+    button.onclick=()=>reviewReport(button.dataset.review);
+  });
 
-  $("#schoolDetail")
-    .querySelectorAll("[data-go]")
-    .forEach(button=>{
-      button.onclick=()=>{
-        filter=id;
-        $("#schoolFilter").value=id;
-        page=button.dataset.go;
-        render();
-      };
-    });
+  $("#schoolDetail").querySelectorAll("[data-go]").forEach(button=>{
+    button.onclick=()=>{
+      filter=id;
+      $("#schoolFilter").value=id;
+      page=button.dataset.go;
+      render();
+    };
+  });
 }
 
 /* ==========================================
@@ -1186,18 +1070,14 @@ function reportsPage(){
 
   $("#content").innerHTML=`
     <div class="notice">
-      Podés incorporar informes PDF, DOCX o TXT.
-      El sistema extraerá el texto e identificará
-      posibles dimensiones de análisis.
-      La validación de las áreas de mejora
-      corresponde a la Supervisión.
+      Podés incorporar informes en PDF, DOC, DOCX o TXT.
+      El sistema extraerá el texto e identificará de manera preliminar
+      las dimensiones de análisis pedagógico para el seguimiento institucional.
     </div>
 
     <div class="toolbar">
       ${canEdit()&&schools.length
-        ?`<button id="newReport">
-            + Cargar informe PDF / Word
-          </button>`
+        ?`<button id="newReport">+ Cargar informe PDF / Word</button>`
         :""
       }
     </div>
@@ -1209,39 +1089,24 @@ function reportsPage(){
         <div class="row">
           <div>
             <b>${esc(report.title)}</b>
-
             <div class="muted small">
-              ${esc(schoolName(report.school_id))}
-              · ${pretty(report.report_date)}
+              ${esc(schoolName(report.school_id))} · ${pretty(report.report_date)}
             </div>
           </div>
 
-          <button class="secondary"
-            data-review="${report.id}">
+          <button class="secondary" data-review="${report.id}">
             Revisar informe
           </button>
         </div>
-      `).join("")||`
-        <p class="muted">
-          No hay informes registrados.
-        </p>
-      `}
+      `).join("")||`<p class="muted">No hay informes registrados.</p>`}
     </div>
   `;
 
-  $("#newReport")?.addEventListener(
-    "click",
-    ()=>reportForm(
-      filter==="all"?null:filter
-    )
-  );
+  $("#newReport")?.addEventListener("click", ()=>reportForm(filter==="all"?null:filter));
 
-  $("#content")
-    .querySelectorAll("[data-review]")
-    .forEach(button=>{
-      button.onclick=()=>
-        reviewReport(button.dataset.review);
-    });
+  $("#content").querySelectorAll("[data-review]").forEach(button=>{
+    button.onclick=()=>reviewReport(button.dataset.review);
+  });
 }
 
 /* ==========================================
@@ -1257,7 +1122,6 @@ const patterns={
     "planificación",
     "propuesta didáctica"
   ],
-
   "Alfabetización":[
     "alfabetización",
     "lectura",
@@ -1265,14 +1129,12 @@ const patterns={
     "situaciones de lectura",
     "producciones escritas"
   ],
-
   "Matemática":[
     "matemática",
     "resolución de problemas",
     "cálculo",
     "numeración"
   ],
-
   "Trayectorias educativas":[
     "trayectoria",
     "inasistencias",
@@ -1280,14 +1142,12 @@ const patterns={
     "continuidad pedagógica",
     "intensificación"
   ],
-
   "Convivencia":[
     "convivencia",
     "conflicto",
     "acuerdos de convivencia",
     "intervención institucional"
   ],
-
   "Gestión institucional":[
     "equipo directivo",
     "seguimiento",
@@ -1295,7 +1155,6 @@ const patterns={
     "acuerdos institucionales",
     "registro institucional"
   ],
-
   "Inclusión educativa":[
     "inclusión",
     "ppi",
@@ -1331,9 +1190,7 @@ function extractSignals(text){
       findings.push({
         dimension,
         summary:"Tema identificado para revisión contextual",
-        evidence:matches.map(
-          p=>p.slice(0,450)
-        ).join(" […] "),
+        evidence:matches.map(p=>p.slice(0,450)).join(" […] "),
         confirmed:false
       });
     }
@@ -1351,22 +1208,16 @@ function reportForm(id){
 
   modalAction={type:"newReport"};
 
-  $("#modalTitle").textContent=
-    "Cargar y analizar informe de supervisión";
+  $("#modalTitle").textContent="Cargar y analizar informe de supervisión";
 
   $("#modalBody").innerHTML=`
     <div class="formgrid">
 
       <div class="wide">
-        <label>
-          Escuela a la que pertenece el informe
-        </label>
-
+        <label>Escuela a la que pertenece el informe</label>
         <select id="repSchool" required>
           ${schools.map(s=>`
-            <option
-              value="${s.id}"
-              ${s.id===id?"selected":""}>
+            <option value="${s.id}" ${s.id===id?"selected":""}>
               ${esc(s.code)} · ${esc(s.name)}
             </option>
           `).join("")}
@@ -1375,60 +1226,30 @@ function reportForm(id){
 
       <div>
         <label>Fecha del informe</label>
-
-        <input id="repDate"
-               type="date"
-               value="${today()}"
-               required>
+        <input id="repDate" type="date" value="${today()}" required>
       </div>
 
       <div>
         <label>Motivo / título del informe</label>
-
-        <input id="repTitle"
-               maxlength="250"
-               required>
+        <input id="repTitle" maxlength="250" placeholder="Ej.: Informe de visita pedagógica" required>
       </div>
 
       <div class="wide upload">
         <h3>📄 Adjuntar informe de supervisión</h3>
+        <p>Seleccioná un archivo PDF, Word (.doc, .docx) o Texto (.txt).</p>
 
-        <p>
-          Seleccioná un archivo PDF, Word (.docx)
-          o texto (.txt).
-        </p>
+        <input id="repFile" type="file" accept=".pdf,.doc,.docx,.txt">
 
-        <input
-          id="repFile"
-          type="file"
-          accept=".pdf,.docx,.txt"
-        >
-
-        <p id="fileStatus" class="muted small">
-          Ningún archivo seleccionado.
-        </p>
+        <p id="fileStatus" class="muted small">Ningún archivo seleccionado.</p>
       </div>
 
       <div class="wide">
-        <label>
-          Texto del informe (opcional)
-        </label>
-
-        <textarea
-          id="repText"
-          rows="9"
-          placeholder="También podés pegar el texto del informe aquí.">
-        </textarea>
+        <label>Texto del informe (opcional o adicional)</label>
+        <textarea id="repText" rows="6" placeholder="También podés escribir o pegar el extracto del informe aquí."></textarea>
       </div>
 
       <div class="wide notice">
-        Al guardar, el sistema extraerá el texto
-        del archivo e identificará posibles
-        dimensiones de análisis.
-
-        Los hallazgos deberán ser revisados
-        antes de incorporarlos como áreas
-        de mejora institucional.
+        Al guardar, el sistema analizará el documento para detectar áreas de mejora y permitir la orientación supervisiva.
       </div>
 
     </div>
@@ -1436,10 +1257,8 @@ function reportForm(id){
 
   $("#repFile").addEventListener("change",event=>{
     const file=event.target.files[0];
-
     $("#fileStatus").textContent=file
-      ?`Archivo seleccionado: ${file.name}
-        (${(file.size/1024/1024).toFixed(2)} MB)`
+      ?`Archivo seleccionado: ${file.name} (${(file.size/1024/1024).toFixed(2)} MB)`
       :"Ningún archivo seleccionado.";
   });
 
@@ -1451,57 +1270,42 @@ function reportForm(id){
 ========================================== */
 
 async function extractFile(file){
-  if(file.size>10485760){
-    throw Error("El archivo supera el límite de 10 MB.");
+  if(file.size > 15 * 1024 * 1024){
+    throw Error("El archivo supera el límite permitido de 15 MB.");
   }
 
-  const extension=file.name
-    .split(".")
-    .pop()
-    .toLowerCase();
+  const extension=file.name.split(".").pop().toLowerCase();
 
   if(extension==="txt"){
     return await file.text();
   }
 
-  if(extension==="docx"){
-    const mammoth=await import(
-      "https://cdn.jsdelivr.net/npm/mammoth@1.9.1/+esm"
-    );
-
-    const result=await mammoth.extractRawText({
-      arrayBuffer:await file.arrayBuffer()
-    });
-
-    return result.value;
+  if(extension==="docx" || extension==="doc"){
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const result = await mammoth.extractRawText({ arrayBuffer });
+      return result.value;
+    } catch(e) {
+      throw Error("Error al leer el archivo Word: " + e.message);
+    }
   }
 
   if(extension==="pdf"){
-    const pdfjs=await import(
-      "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs"
-    );
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: new Uint8Array(arrayBuffer) }).promise;
+      const pages = [];
 
-    pdfjs.GlobalWorkerOptions.workerSrc=
-      "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs";
+      for(let number=1; number<=pdf.numPages; number++){
+        const page = await pdf.getPage(number);
+        const content = await page.getTextContent();
+        pages.push(content.items.map(item => item.str || "").join(" "));
+      }
 
-    const pdf=await pdfjs.getDocument({
-      data:new Uint8Array(await file.arrayBuffer())
-    }).promise;
-
-    const pages=[];
-
-    for(let number=1;number<=pdf.numPages;number++){
-      const page=await pdf.getPage(number);
-      const content=await page.getTextContent();
-
-      pages.push(
-        content.items
-          .map(item=>item.str||"")
-          .join(" ")
-      );
+      return pages.join("\n\n");
+    } catch(e) {
+      throw Error("Error al leer el archivo PDF: " + e.message);
     }
-
-    return pages.join("\n\n");
   }
 
   throw Error("Formato de archivo no admitido.");
@@ -1513,24 +1317,17 @@ async function extractFile(file){
 
 async function saveReport(){
   const file=$("#repFile").files[0];
-
   let text=$("#repText").value.trim();
 
   if(file){
     const extracted=(await extractFile(file)).trim();
-
     if(extracted){
-      text=[text,extracted]
-        .filter(Boolean)
-        .join("\n\n");
+      text=[text,extracted].filter(Boolean).join("\n\n");
     }
   }
 
-  if(text.length<60){
-    throw Error(
-      "No se pudo obtener suficiente texto del informe. "+
-      "Si es un PDF escaneado, pegá una transcripción."
-    );
+  if(text.length < 20){
+    throw Error("El texto del informe es demasiado corto o no pudo extraerse del archivo.");
   }
 
   const payload={
@@ -1546,9 +1343,7 @@ async function saveReport(){
     throw Error("Completá el título y la fecha.");
   }
 
-  const {error}=await sb
-    .from("supervision_reports")
-    .insert(payload);
+  const {error}=await sb.from("supervision_reports").insert(payload);
 
   if(error)throw error;
 }
@@ -1558,9 +1353,7 @@ async function saveReport(){
 ========================================== */
 
 function reviewReport(id){
-  const report=(data.supervision_reports||[])
-    .find(r=>r.id===id);
-
+  const report=(data.supervision_reports||[]).find(r=>r.id===id);
   if(!report)return;
 
   modalAction={
@@ -1568,63 +1361,36 @@ function reviewReport(id){
     record:report
   };
 
-  $("#modalTitle").textContent=
-    "Análisis supervisivo del informe";
+  $("#modalTitle").textContent="Análisis supervisivo del informe";
 
   const findings=report.findings||[];
 
   $("#modalBody").innerHTML=`
     <p>
-      <b>${esc(schoolName(report.school_id))}</b>
-      · ${esc(report.title)}
-      · ${pretty(report.report_date)}
+      <b>${esc(schoolName(report.school_id))}</b> · ${esc(report.title)} · ${pretty(report.report_date)}
     </p>
 
     <div class="notice">
-      Revisá el contexto de cada fragmento.
-      Validá únicamente las áreas de mejora
-      fundamentadas en evidencias.
+      Revisá el contexto del informe. Validá únicamente las áreas de mejora fundamentadas e indicá las orientaciones necesarias.
     </div>
 
     ${findings.map((finding,index)=>`
       <div class="review">
         <label>
-          <input
-            type="checkbox"
-            data-check="${index}"
-            style="width:auto"
-            ${finding.confirmed?"checked":""}
-          >
-
-          ${esc(finding.dimension)}
-          — Validar como área de mejora
+          <input type="checkbox" data-check="${index}" style="width:auto" ${finding.confirmed?"checked":""}>
+          <b>${esc(finding.dimension)}</b> — Validar como área de mejora
         </label>
 
-        <p class="muted small">
-          ${esc(finding.evidence)}
-        </p>
+        <p class="muted small">${esc(finding.evidence)}</p>
 
-        <label>
-          Fundamentación y orientación supervisiva
-        </label>
-
-        <textarea data-summary="${index}">${
-          esc(finding.summary)
-        }</textarea>
+        <label>Orientación supervisiva y fundamentación</label>
+        <textarea data-summary="${index}">${esc(finding.summary)}</textarea>
       </div>
-    `).join("")||`
-      <p>
-        No se identificaron coincidencias automáticas.
-        El informe puede consultarse igualmente.
-      </p>
-    `}
+    `).join("")||`<p>No se identificaron coincidencia automáticas. Podés revisar el texto completo más abajo.</p>`}
 
-    <details>
-      <summary>
-        Consultar texto completo del informe
-      </summary>
-
-      <pre>${esc(report.report_text)}</pre>
+    <details style="margin-top:15px;">
+      <summary style="cursor:pointer; font-weight:bold;">Consultar texto completo del informe</summary>
+      <pre style="background:#f4f7f8; padding:10px; border-radius:6px; margin-top:10px;">${esc(report.report_text)}</pre>
     </details>
   `;
 
@@ -1634,23 +1400,13 @@ function reviewReport(id){
 async function saveReview(){
   const report=modalAction.record;
 
-  const findings=(report.findings||[])
-    .map((finding,index)=>({
-      ...finding,
+  const findings=(report.findings||[]).map((finding,index)=>({
+    ...finding,
+    confirmed:!!$(`[data-check="${index}"]`)?.checked,
+    summary:$(`[data-summary="${index}"]`)?.value.trim()||finding.summary
+  }));
 
-      confirmed:!!$(
-        `[data-check="${index}"]`
-      )?.checked,
-
-      summary:$(
-        `[data-summary="${index}"]`
-      )?.value.trim()||finding.summary
-    }));
-
-  const {error}=await sb
-    .from("supervision_reports")
-    .update({findings})
-    .eq("id",report.id);
+  const {error}=await sb.from("supervision_reports").update({findings}).eq("id",report.id);
 
   if(error)throw error;
 }
@@ -1666,11 +1422,7 @@ function improvements(){
 
   $("#content").innerHTML=`
     <div class="notice">
-      Las áreas presentadas fueron validadas
-      por la Supervisión.
-
-      No constituyen una calificación automática
-      de la institución.
+      Las siguientes orientaciones y áreas de mejora fueron validadas en los informes de supervisión.
     </div>
 
     ${ids.map(id=>{
@@ -1679,29 +1431,15 @@ function improvements(){
 
       return `
         <section class="panel">
-          <h2>
-            ${esc(school?.code||"")}
-            · ${esc(school?.name||"")}
-          </h2>
+          <h2>${esc(school?.code||"")} · ${esc(school?.name||"")}</h2>
 
           ${findings.map(finding=>`
             <div class="review">
-              <span class="pill">
-                ${esc(finding.dimension)}
-              </span>
-
+              <span class="pill">${esc(finding.dimension)}</span>
               <p>${esc(finding.summary)}</p>
-
-              <small>
-                Informe:
-                ${esc(finding.report.title)}
-              </small>
+              <small>Informe: ${esc(finding.report.title)}</small>
             </div>
-          `).join("")||`
-            <p class="muted">
-              Sin áreas de mejora validadas.
-            </p>
-          `}
+          `).join("")||`<p class="muted">Sin áreas de mejora validadas.</p>`}
         </section>
       `;
     }).join("")}
@@ -1720,42 +1458,23 @@ function recordsPage(table){
     <div class="panel tablewrap">
       <h2>${esc(labels[table])}</h2>
 
-      <p class="muted">
-        Registros institucionales existentes
-        en Supabase.
-      </p>
+      <p class="muted">Registros institucionales existentes.</p>
 
       <table>
         <thead>
           <tr>
             <th>Escuela</th>
-
-            ${cols.map(col=>`
-              <th>
-                ${esc(fieldLabels[col]||col)}
-              </th>
-            `).join("")}
+            ${cols.map(col=>`<th>${esc(fieldLabels[col]||col)}</th>`).join("")}
           </tr>
         </thead>
 
         <tbody>
           ${rows.map(record=>`
             <tr>
-              <td>
-                ${esc(schoolName(record.school_id))}
-              </td>
-
-              ${cols.map(col=>`
-                <td>${esc(record[col])}</td>
-              `).join("")}
+              <td>${esc(schoolName(record.school_id))}</td>
+              ${cols.map(col=>`<td>${esc(record[col])}</td>`).join("")}
             </tr>
-          `).join("")||`
-            <tr>
-              <td colspan="10">
-                Sin registros.
-              </td>
-            </tr>
-          `}
+          `).join("")||`<tr><td colspan="10">Sin registros.</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -1789,14 +1508,11 @@ $("#modalForm").onsubmit=async event=>{
     }
 
     $("#modal").close();
-
     notify("Información guardada correctamente.");
-
     await load();
 
   }catch(error){
     notify("Error: "+error.message);
-
   }finally{
     button.disabled=false;
     button.textContent="Guardar";
@@ -1832,14 +1548,11 @@ $("#logout").onclick=async()=>{
 
 $("#loginForm").onsubmit=async event=>{
   event.preventDefault();
-
   $("#loginError").textContent="";
 
   try{
     if(!sb){
-      throw Error(
-        "No se encontró la configuración de Supabase."
-      );
+      throw Error("No se encontró la configuración de Supabase.");
     }
 
     const {error}=await sb.auth.signInWithPassword({
@@ -1861,8 +1574,7 @@ async function start(){
     throw Error("Falta la conexión con Supabase.");
   }
 
-  const {data:auth,error:authError}=
-    await sb.auth.getUser();
+  const {data:auth,error:authError}=await sb.auth.getUser();
 
   if(authError||!auth.user)return;
 
@@ -1875,16 +1587,12 @@ async function start(){
     .single();
 
   if(error||!profile){
-    throw Error(
-      "La cuenta no tiene un perfil autorizado."
-    );
+    throw Error("La cuenta no tiene un perfil autorizado.");
   }
 
   role=profile.role;
 
-  $("#userInfo").textContent=
-    (profile.full_name||user.email)+" · "+role;
-
+  $("#userInfo").textContent=(profile.full_name||user.email)+" · "+role;
   $("#login").classList.add("hidden");
   $("#app").classList.remove("hidden");
 
@@ -1894,7 +1602,6 @@ async function start(){
 if(sb){
   start().catch(error=>{
     notify(error.message);
-
     $("#login").classList.remove("hidden");
     $("#app").classList.add("hidden");
   });
