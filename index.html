@@ -1,61 +1,998 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SISE | Supervisión Educativa</title><style>
-:root{font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;color:#1c3041;background:#f3f6f9}*{box-sizing:border-box}body{margin:0}button,input,select,textarea{font:inherit}button{cursor:pointer;border:0;border-radius:9px;padding:10px 14px;background:#126c72;color:white}button.secondary{background:#e7eef1;color:#183a49}button.danger{background:#a43e40}button:disabled{opacity:.5;cursor:not-allowed}input,select,textarea{width:100%;padding:10px;border:1px solid #ccd8df;border-radius:8px;background:white}textarea{min-height:100px;resize:vertical}label{display:block;font-size:.85rem;font-weight:600;margin-bottom:5px}.layout{display:flex;min-height:100vh}aside{width:240px;background:#123546;color:#fff;padding:23px 14px;flex-shrink:0}aside h2{margin:0 10px 5px}aside small{display:block;margin:0 10px 26px;color:#b6d0d8}nav button{display:block;width:100%;text-align:left;background:transparent;margin:3px 0}nav button.active,nav button:hover{background:#28586a}main{flex:1;min-width:0;padding:28px;max-width:1600px}.top{display:flex;align-items:center;justify-content:space-between;gap:15px;flex-wrap:wrap}.muted{color:#627785}.cards{display:grid;grid-template-columns:repeat(4,minmax(140px,1fr));gap:14px;margin:20px 0}.card,.panel{background:white;border:1px solid #e0e7eb;border-radius:13px;padding:20px;box-shadow:0 2px 8px #12354608}.card strong{display:block;font-size:2rem;margin-top:9px}.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:16px 0}.toolbar select{max-width:270px}.tablewrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:.9rem}td,th{text-align:left;border-bottom:1px solid #e7eef1;padding:11px;vertical-align:top}th{color:#526b78}tr:hover td{background:#fafcfd}.pill{display:inline-block;padding:4px 9px;border-radius:20px;background:#edf1f5;font-size:.78rem}.warn{background:#fff0d7;color:#8a580b}.bad{background:#fce5e5;color:#a43e40}.good{background:#e0f4e9;color:#256a48}.formgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}.wide{grid-column:1/-1}.actions{display:flex;gap:8px;flex-wrap:wrap}.login{max-width:430px;margin:9vh auto}.hidden{display:none!important}dialog{border:0;border-radius:16px;padding:24px;width:min(750px,94vw);max-height:88vh;overflow:auto;box-shadow:0 20px 80px #112b3970}dialog::backdrop{background:#102e3b88}dialog h2{margin-top:0}.message{margin:12px 0;padding:12px;border-radius:8px;background:#eaf3f4}.chartbar{height:12px;background:#e8edf0;border-radius:10px;overflow:hidden;margin:7px 0 15px}.chartbar>div{height:100%;background:#2e9092}.notice{padding:12px;background:#fff7e7;border-left:4px solid #d7a044;border-radius:5px;margin:12px 0}#toast{position:fixed;right:20px;bottom:20px;background:#173e4d;color:#fff;padding:14px;border-radius:9px;display:none;max-width:400px;z-index:10}a{color:#0d737b}@media(max-width:950px){aside{width:190px}.cards{grid-template-columns:repeat(2,1fr)}.two{grid-template-columns:1fr}}@media(max-width:650px){.layout{display:block}aside{width:100%;padding:12px}aside small{margin-bottom:8px}nav{display:flex;overflow:auto}nav button{white-space:nowrap;width:auto}main{padding:15px}.formgrid{grid-template-columns:1fr}.cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
-</style></head><body>
-<section id="login" class="login panel"><h1>SISE</h1><p>Sistema Integral de Supervisión Educativa</p><p class="muted">Ingresá con tu cuenta autorizada de Supabase.</p><form id="loginForm"><label>Correo electrónico<input id="email" type="email" required autocomplete="username"></label><br><label>Contraseña<input id="password" type="password" required autocomplete="current-password"></label><br><button type="submit">Ingresar</button></form><div id="loginError" class="message hidden"></div><p class="muted"><small>La aplicación necesita configurar las credenciales públicas del proyecto en config.js y ejecutarse desde un servidor web.</small></p></section>
-<div id="app" class="layout hidden"><aside><h2>SISE</h2><small>Supervisión Educativa</small><nav id="nav"></nav><hr style="border:0;border-top:1px solid #426777;margin:20px 10px"><button class="secondary" id="logout">Cerrar sesión</button><p id="userInfo" style="font-size:.75rem;color:#c4d7df;padding:10px"></p></aside><main><header class="top"><div><h1 id="pageTitle">Panel supervisivo</h1><div class="muted" id="subtitle">Seguimiento institucional y decisiones de mejora</div></div><div class="toolbar"><select id="schoolFilter" aria-label="Filtrar escuela"></select><button class="secondary" id="refresh">Actualizar</button></div></header><div id="content"></div></main></div>
-<dialog id="modal"><h2 id="modalTitle"></h2><form id="recordForm"><div id="formFields" class="formgrid"></div><div class="actions" style="margin-top:20px"><button type="submit">Guardar</button><button type="button" class="secondary" id="cancel">Cancelar</button></div></form></dialog><div id="toast" role="status"></div>
-<script src="config.js?v=3"></script><script type="module">
-import {createClient} from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-const cfg=window.SISE_CONFIG||{};const sb=(cfg.url&&cfg.anonKey)?createClient(cfg.url,cfg.anonKey):null;
-const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const today=()=>new Date().toLocaleDateString('en-CA');const pretty=d=>d?new Date(d+'T12:00:00').toLocaleDateString('es-AR'):'—';
-let user=null,role='reader',schools=[],data={},page='dashboard',filter='all',editing=null;
-const modules={schools:'Escuelas',visits:'Visitas',incidents:'Convivencia',metrics:'Matrícula y asistencia',strikes:'Paros',agreements:'Acuerdos',documents:'Documentos'};
-const specs={
- schools:[['code','Código EP','text',1],['name','Nombre','text',1],['locality','Localidad'],['address','Domicilio'],['shifts','Turnos'],['director','Dirección'],['sections','Secciones','number'],['notes','Observaciones','textarea']],
- visits:[['visit_date','Fecha','date',1],['visit_type','Tipo de visita'],['title','Motivo / título','text',1],['observations','Observaciones','textarea'],['guidance','Orientaciones','textarea'],['follow_up_date','Próximo seguimiento','date']],
- incidents:[['incident_date','Fecha','date',1],['category','Categoría','text',1],['severity','Nivel de atención','select:baja|media|alta'],['summary','Síntesis sin datos personales','textarea',1],['actions','Intervenciones','textarea'],['status','Estado','select:abierto|seguimiento|cerrado']],
- metrics:[['period','Período de referencia','date',1],['enrollment','Matrícula','number'],['attendance_pct','Asistencia estudiantil (%)','number'],['chronic_absence_count','Inasistencias reiteradas (cantidad)','number'],['teacher_absence_pct','Ausentismo docente (%)','number'],['literacy_pct','Indicador de alfabetización (%)','number'],['math_pct','Indicador de matemática (%)','number'],['notes','Fuente y observaciones','textarea']],
- strikes:[['strike_date','Fecha','date',1],['total_teachers','Docentes considerados','number'],['adhering_teachers','Docentes adherentes','number'],['affected_sections','Secciones afectadas','number'],['continuity_plan','Estrategias de continuidad','textarea'],['notes','Observaciones','textarea']],
- agreements:[['title','Acuerdo','text',1],['dimension','Dimensión','select:Trayectorias|Enseñanza|Convivencia|Gestión|Continuidad pedagógica',1],['description','Acciones comprometidas','textarea'],['responsible','Responsable institucional'],['due_date','Fecha de revisión','date'],['status','Estado','select:pendiente|en_proceso|cumplido'],['evidence','Evidencia de avance','textarea']]
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SISE | Supervisión Educativa</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='85'%3E🏫%3C/text%3E%3C/svg%3E">
+
+<style>
+:root{
+  font-family:Arial,Helvetica,sans-serif;
+  color:#203746;
+  background:#f2f6f8;
+}
+*{box-sizing:border-box}
+body{margin:0}
+button,input,select,textarea{font:inherit}
+button{
+  background:#126c72;color:white;border:0;
+  border-radius:8px;padding:10px 14px;cursor:pointer;
+}
+button:hover{filter:brightness(.94)}
+button:disabled{opacity:.5;cursor:not-allowed}
+button.secondary{background:#e4eef0;color:#194653}
+button.danger{background:#a33d40}
+input,select,textarea{
+  width:100%;padding:10px;border:1px solid #ccd8df;
+  border-radius:8px;background:white;
+}
+textarea{min-height:130px;resize:vertical}
+label{display:block;font-weight:600;font-size:14px;margin:10px 0 5px}
+h1,h2,h3{color:#153c4c}
+h1{font-size:27px}
+h2{font-size:21px}
+small,.muted{color:#657d89}
+.hidden{display:none!important}
+.layout{display:flex;min-height:100vh}
+aside{
+  background:#123546;color:white;width:240px;
+  padding:22px 14px;flex-shrink:0;
+}
+aside h2{color:white;margin:0 8px}
+aside p{color:#c1d5dd}
+nav{margin:25px 0}
+nav button{
+  display:block;width:100%;text-align:left;
+  margin:4px 0;background:transparent;
+}
+nav button.active,nav button:hover{background:#28586a}
+main{flex:1;min-width:0;padding:25px}
+.top{
+  display:flex;justify-content:space-between;
+  align-items:center;gap:15px;flex-wrap:wrap;
+}
+.panel,.card{
+  background:white;border:1px solid #dfe7eb;
+  border-radius:12px;padding:20px;margin-bottom:16px;
+  box-shadow:0 2px 8px #12354608;
+}
+.cards{
+  display:grid;grid-template-columns:repeat(4,1fr);
+  gap:14px;margin:20px 0;
+}
+.card strong{display:block;font-size:30px;margin-top:10px}
+.schoolgrid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+  gap:14px;
+}
+.schoolcard{
+  text-align:left;background:white;color:#173e4d;
+  border:1px solid #d6e3e9;border-radius:12px;
+  padding:22px;min-height:150px;
+}
+.schoolcard:hover{background:#edf8f7;border-color:#168087}
+.schoolcard strong{display:block;font-size:19px;margin:10px 0}
+.schoolcard small{display:block}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}
+.toolbar select{max-width:300px}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{padding:12px;text-align:left;border-bottom:1px solid #e5ecef}
+th{background:#f4f7f8}
+.tablewrap{overflow-x:auto}
+.pill{
+  display:inline-block;padding:5px 9px;border-radius:20px;
+  background:#e8eff1;font-size:12px;margin:3px;
+}
+.warn{background:#fff0d7;color:#885b12}
+.good{background:#e0f4e9;color:#246a49}
+.notice{
+  background:#fff8e8;border-left:4px solid #d6a044;
+  padding:13px;border-radius:5px;margin:15px 0;
+}
+.row{
+  display:flex;justify-content:space-between;
+  align-items:center;gap:12px;flex-wrap:wrap;
+  padding:12px 0;border-bottom:1px solid #e8eef1;
+}
+.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.wide{grid-column:1/-1}
+.login{max-width:430px;margin:9vh auto}
+dialog{
+  border:0;border-radius:15px;padding:24px;
+  width:min(850px,95vw);max-height:90vh;overflow:auto;
+  box-shadow:0 15px 70px #102e3b55;
+}
+dialog::backdrop{background:#102e3b88}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}
+.review{
+  border:1px solid #dce7e9;border-radius:10px;
+  padding:15px;margin:10px 0;
+}
+pre{white-space:pre-wrap;overflow-wrap:anywhere}
+#toast{
+  position:fixed;bottom:20px;right:20px;
+  background:#173e4d;color:white;padding:15px;
+  border-radius:9px;display:none;max-width:420px;z-index:20;
+}
+@media(max-width:900px){
+  .cards{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:650px){
+  .layout{display:block}
+  aside{width:100%}
+  nav{display:flex;overflow-x:auto}
+  nav button{width:auto;white-space:nowrap}
+  main{padding:14px}
+  .formgrid{grid-template-columns:1fr}
+}
+</style>
+</head>
+
+<body>
+
+<section id="login" class="login panel">
+  <h1>🏫 SISE</h1>
+  <p>Sistema Integral de Supervisión Educativa</p>
+  <p class="muted">Acceso autorizado</p>
+  <form id="loginForm">
+    <label>Correo electrónico</label>
+    <input id="email" type="email" required>
+    <label>Contraseña</label>
+    <input id="password" type="password" required>
+    <div class="actions">
+      <button type="submit">Ingresar</button>
+    </div>
+  </form>
+  <p id="loginError" class="muted"></p>
+</section>
+
+<div id="app" class="layout hidden">
+  <aside>
+    <h2>🏫 SISE</h2>
+    <p>Sistema de Supervisión Educativa</p>
+    <nav id="nav"></nav>
+    <button id="logout" class="secondary">Cerrar sesión</button>
+    <p id="userInfo"></p>
+  </aside>
+
+  <main>
+    <header class="top">
+      <div>
+        <h1 id="pageTitle">Panel supervisivo</h1>
+        <p class="muted">Información institucional y decisiones de mejora</p>
+      </div>
+      <div class="toolbar">
+        <select id="schoolFilter"></select>
+        <button id="refresh" class="secondary">Actualizar</button>
+      </div>
+    </header>
+    <div id="content"></div>
+  </main>
+</div>
+
+<dialog id="modal">
+  <h2 id="modalTitle"></h2>
+  <form id="modalForm">
+    <div id="modalBody"></div>
+    <div class="actions">
+      <button type="submit">Guardar</button>
+      <button type="button" class="secondary" id="cancel">
+        Cancelar
+      </button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast"></div>
+
+<script src="config.js?v=5"></script>
+
+<script type="module">
+import {createClient} from
+"https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
+const cfg=window.SISE_CONFIG||{};
+const sb=cfg.url&&cfg.anonKey
+  ?createClient(cfg.url,cfg.anonKey)
+  :null;
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({
+  "&":"&amp;","<":"&lt;",">":"&gt;",
+  '"':"&quot;","'":"&#39;"
+}[c]));
+
+const today=()=>new Date().toLocaleDateString("en-CA");
+const pretty=d=>d
+  ?new Date(d+"T12:00:00").toLocaleDateString("es-AR")
+  :"—";
+
+let user=null,role="reader",schools=[],data={};
+let page="dashboard",filter="all",selectedSchool=null;
+let modalAction=null;
+
+const tables=[
+  "schools","visits","incidents","metrics",
+  "strikes","agreements","documents","supervision_reports"
+];
+
+const labels={
+  visits:"Visitas",
+  incidents:"Convivencia",
+  metrics:"Matrícula y asistencia",
+  strikes:"Paros",
+  agreements:"Acuerdos",
+  documents:"Documentos"
 };
-const cols={schools:['code','name','locality','director'],visits:['visit_date','title','visit_type','follow_up_date'],incidents:['incident_date','category','severity','status'],metrics:['period','enrollment','attendance_pct','chronic_absence_count'],strikes:['strike_date','total_teachers','adhering_teachers','affected_sections'],agreements:['title','dimension','due_date','status'],documents:['title','document_type','created_at']};
-const headings={code:'Escuela',name:'Nombre',locality:'Localidad',director:'Dirección',visit_date:'Fecha',title:'Título',visit_type:'Tipo',follow_up_date:'Seguimiento',incident_date:'Fecha',category:'Categoría',severity:'Atención',status:'Estado',period:'Período',enrollment:'Matrícula',attendance_pct:'Asistencia %',chronic_absence_count:'Inasistencias reiteradas',strike_date:'Fecha',total_teachers:'Docentes',adhering_teachers:'Adherentes',affected_sections:'Secciones afectadas',dimension:'Dimensión',due_date:'Plazo',document_type:'Tipo',created_at:'Carga'};
-function toast(msg){$('#toast').textContent=msg;$('#toast').style.display='block';setTimeout(()=>$('#toast').style.display='none',4500)}
-function ensure(){if(!sb)throw Error('Configurá URL y clave pública de Supabase en config.js.');}
-function permitted(){return role==='admin'||role==='inspector'}
-function schoolName(id){return schools.find(s=>s.id===id)?.code||'—'}
-function scoped(rows){return filter==='all'?rows:rows.filter(r=>r.school_id===filter||r.id===filter&&page==='schools')}
-function metricLatest(id){return (data.metrics||[]).filter(x=>x.school_id===id).sort((a,b)=>b.period.localeCompare(a.period))[0]}
-function recommendations(id){const m=metricLatest(id),a=(data.agreements||[]).filter(x=>x.school_id===id),i=(data.incidents||[]).filter(x=>x.school_id===id),s=(data.strikes||[]).filter(x=>x.school_id===id).sort((x,y)=>y.strike_date.localeCompare(x.strike_date))[0],r=[];
- if(m?.attendance_pct!=null&&Number(m.attendance_pct)<85)r.push(['Trayectorias','Asistencia inferior al umbral orientativo de 85%. Revisar tendencia, causas y estrategias de revinculación.']);
- if(m?.chronic_absence_count>0)r.push(['Trayectorias',`${m.chronic_absence_count} registros de inasistencia reiterada. Revisar acompañamiento y fuentes.`]);
- if(m?.literacy_pct!=null&&Number(m.literacy_pct)<70)r.push(['Enseñanza','Indicador de alfabetización inferior al umbral de análisis configurado (70%). Revisar instrumentos y propuestas.']);
- if(m?.math_pct!=null&&Number(m.math_pct)<70)r.push(['Enseñanza','Indicador de matemática inferior al umbral de análisis configurado (70%). Revisar instrumentos y propuestas.']);
- const overdue=a.filter(x=>x.status!=='cumplido'&&x.due_date&&x.due_date<today());if(overdue.length)r.push(['Gestión',`${overdue.length} acuerdo(s) con fecha vencida. Revisar cumplimiento y reprogramación.`]);
- const open=i.filter(x=>x.status!=='cerrado');if(open.length)r.push(['Convivencia',`${open.length} situación(es) con seguimiento abierto. Verificar intervenciones y resguardos.`]);
- if(s?.total_teachers>0&&s.adhering_teachers/s.total_teachers>=.5)r.push(['Continuidad pedagógica','Último registro de paro con adhesión igual o superior al 50%. Revisar continuidad pedagógica; no atribuir causalidad ni valoración a la adhesión.']);
- return r;}
-async function load(){ensure();const queries=await Promise.all(Object.keys(modules).map(async k=>{const {data:d,error}=await sb.from(k).select('*').order(k==='schools'?'code':'created_at',{ascending:false});if(error)throw error;return [k,d||[]]}));data=Object.fromEntries(queries);schools=data.schools;$('#schoolFilter').innerHTML='<option value="all">Todas las escuelas</option>'+schools.map(s=>`<option value="${s.id}">${esc(s.code)} · ${esc(s.name)}</option>`).join('');if(filter!=='all'&&!schools.some(s=>s.id===filter))filter='all';$('#schoolFilter').value=filter;render()}
-function nav(){const items=[['dashboard','Panel general'],...Object.entries(modules),['improvements','Áreas de mejora']];$('#nav').innerHTML=items.map(([k,v])=>`<button data-page="${k}" class="${k===page?'active':''}">${esc(v)}</button>`).join('');$('#nav').querySelectorAll('button').forEach(b=>b.onclick=()=>{page=b.dataset.page;render()})}
-function render(){nav();$('#pageTitle').textContent=page==='dashboard'?'Panel supervisivo':page==='improvements'?'Áreas de mejora':modules[page];if(page==='dashboard')return dashboard();if(page==='improvements')return improvements();return listing(page)}
-function dashboard(){const ids=filter==='all'?schools.map(s=>s.id):[filter],a=(data.agreements||[]).filter(x=>ids.includes(x.school_id)),i=(data.incidents||[]).filter(x=>ids.includes(x.school_id)),v=(data.visits||[]).filter(x=>ids.includes(x.school_id)),alerts=ids.flatMap(id=>recommendations(id).map(x=>({school:schoolName(id),label:x[0],text:x[1]})));const last=ids.map(id=>metricLatest(id)).filter(Boolean);const mean=last.filter(x=>x.attendance_pct!=null);const avg=mean.length?(mean.reduce((z,x)=>z+Number(x.attendance_pct),0)/mean.length).toFixed(1)+'%':'Sin datos';
- $('#content').innerHTML=`<div class="cards"><div class="card">Escuelas<strong>${ids.length}</strong></div><div class="card">Visitas registradas<strong>${v.length}</strong></div><div class="card">Acuerdos pendientes<strong>${a.filter(x=>x.status!=='cumplido').length}</strong></div><div class="card">Asistencia promedio*<strong>${avg}</strong></div></div><p class="muted">*Promedio simple del último registro disponible por escuela; no ponderado por matrícula ni comparable si los períodos difieren.</p><div class="two"><section class="panel"><h2>Alertas para revisión (${alerts.length})</h2>${alerts.length?alerts.slice(0,15).map(x=>`<p><span class="pill warn">${esc(x.school)} · ${esc(x.label)}</span><br>${esc(x.text)}</p>`).join(''):'<p class="muted">No hay alertas según las reglas actuales o faltan registros.</p>'}</section><section class="panel"><h2>Seguimiento institucional</h2><p>Situaciones abiertas: <b>${i.filter(x=>x.status!=='cerrado').length}</b></p><p>Acuerdos vencidos: <b>${a.filter(x=>x.status!=='cumplido'&&x.due_date&&x.due_date<today()).length}</b></p><h3>Últimas visitas</h3>${v.sort((x,y)=>y.visit_date.localeCompare(x.visit_date)).slice(0,6).map(x=>`<p>${pretty(x.visit_date)} · ${esc(schoolName(x.school_id))}: ${esc(x.title)}</p>`).join('')||'<p class="muted">Sin visitas cargadas.</p>'}</section></div>`}
-function improvements(){const ids=filter==='all'?schools.map(s=>s.id):[filter];$('#content').innerHTML='<div class="notice">Las alertas son señales de revisión, no evaluaciones automáticas de instituciones. Los umbrales son configuraciones orientativas iniciales, no criterios normativos.</div>'+ids.map(id=>{const r=recommendations(id);return `<section class="panel" style="margin:14px 0"><h2>${esc(schoolName(id))}</h2>${r.length?r.map(([dim,txt])=>`<p><span class="pill warn">${esc(dim)}</span> ${esc(txt)}</p>`).join(''):'<p class="muted">Sin señales detectadas con los registros disponibles.</p>'}<button data-filter="${id}" class="secondary">Ver legajo</button></section>`}).join('');$('#content').querySelectorAll('[data-filter]').forEach(b=>b.onclick=()=>{filter=b.dataset.filter;$('#schoolFilter').value=filter;page='schools';render()})}
-function listing(k){let rows=scoped(data[k]||[]);if(k==='schools'&&filter!=='all')rows=rows.filter(x=>x.id===filter);const canCreate=permitted()&&(k==='schools'?role==='admin':schools.length>0);$('#content').innerHTML=`<div class="toolbar">${canCreate?`<button id="newRecord">+ ${k==='documents'?'Subir documento':'Nuevo registro'}</button>`:''}<button class="secondary" id="exportCsv">Exportar CSV</button><span class="muted">${rows.length} registro(s)</span></div><div class="panel tablewrap"><table><thead><tr>${k!=='schools'?'<th>Escuela</th>':''}${cols[k].map(c=>`<th>${esc(headings[c]||c)}</th>`).join('')}<th>Acciones</th></tr></thead><tbody>${rows.map(r=>`<tr>${k!=='schools'?`<td>${esc(schoolName(r.school_id))}</td>`:''}${cols[k].map(c=>`<td>${esc(c.endsWith('_date')||c==='period'?pretty(r[c]):r[c])}</td>`).join('')}<td><div class="actions">${k==='documents'?`<button class="secondary" data-open="${r.id}">Abrir</button>`:k==='schools'?`<button class="secondary" data-legajo="${r.id}">Legajo</button>${role==='admin'?`<button class="secondary" data-edit="${r.id}">Editar</button>`:''}`:permitted()?`<button class="secondary" data-edit="${r.id}">Editar</button>`:''}${permitted()&&k!=='schools'?`<button class="danger" data-del="${r.id}">Eliminar</button>`:''}</div></td></tr>`).join('')||`<tr><td colspan="10">No hay registros cargados.</td></tr>`}</tbody></table></div>${k==='schools'&&filter!=='all'?legajo(filter):''}`;
- $('#newRecord')?.addEventListener('click',()=>k==='documents'?uploadDialog():openForm(k));$('#exportCsv').onclick=()=>csv(k,rows);$('#content').querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>openForm(k,rows.find(r=>r.id===b.dataset.edit)));$('#content').querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>remove(k,b.dataset.del));$('#content').querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openDoc(rows.find(r=>r.id===b.dataset.open)));$('#content').querySelectorAll('[data-legajo]').forEach(b=>b.onclick=()=>{filter=b.dataset.legajo;$('#schoolFilter').value=filter;render()});}
-function legajo(id){const s=schools.find(x=>x.id===id);if(!s)return '';return `<div class="panel" style="margin-top:18px"><h2>Legajo · ${esc(s.code)} ${esc(s.name)}</h2><p><b>Localidad:</b> ${esc(s.locality)} · <b>Turnos:</b> ${esc(s.shifts)} · <b>Dirección:</b> ${esc(s.director)}</p><p>${esc(s.notes)}</p><h3>Resumen de seguimiento</h3><p>Visitas: ${(data.visits||[]).filter(x=>x.school_id===id).length} · Situaciones: ${(data.incidents||[]).filter(x=>x.school_id===id).length} · Acuerdos: ${(data.agreements||[]).filter(x=>x.school_id===id).length} · Documentos: ${(data.documents||[]).filter(x=>x.school_id===id).length}</p><h3>Áreas para revisar</h3>${recommendations(id).map(x=>`<p><b>${esc(x[0])}:</b> ${esc(x[1])}</p>`).join('')||'<p class="muted">Sin alertas registradas.</p>'}</div>`}
-function openForm(k,record=null){editing={k,record};$('#modalTitle').textContent=(record?'Editar ':'Nuevo registro · ')+modules[k];let fields=[];if(k!=='schools')fields.push(`<div class="wide"><label>Escuela<select name="school_id" required>${schools.map(s=>`<option value="${s.id}" ${s.id===(record?.school_id||filter)?'selected':''}>${esc(s.code)} · ${esc(s.name)}</option>`).join('')}</select></label></div>`);
- for(const [key,label,type='text',required=0] of specs[k]){const val=record?.[key]??((type==='date'&&['visit_date','incident_date','period','strike_date'].includes(key))?today():'');let control;if(type==='textarea')control=`<textarea name="${key}" ${required?'required':''}>${esc(val)}</textarea>`;else if(type.startsWith('select:'))control=`<select name="${key}">${type.slice(7).split('|').map(v=>`<option value="${esc(v)}" ${v===val?'selected':''}>${esc(v.replaceAll('_',' '))}</option>`).join('')}</select>`;else control=`<input name="${key}" type="${type}" value="${esc(val)}" ${type==='number'?'min="0" step="any"':''} ${required?'required':''}>`;fields.push(`<div class="${type==='textarea'?'wide':''}"><label>${esc(label)}${required?' *':''}${control}</label></div>`)}$('#formFields').innerHTML=fields.join('');$('#modal').showModal()}
-$('#recordForm').onsubmit=async e=>{e.preventDefault();if(!editing)return;const {k,record}=editing;const obj=Object.fromEntries(new FormData(e.currentTarget).entries());for(const [key,,type] of specs[k])if(type==='number')obj[key]=obj[key]===''?null:Number(obj[key]);else if(obj[key]==='')obj[key]=null;try{const q=record?sb.from(k).update(obj).eq('id',record.id):sb.from(k).insert(obj);const {error}=await q;if(error)throw error;$('#modal').close();toast('Registro guardado');await load()}catch(err){toast('No se pudo guardar: '+err.message)}};
-async function remove(k,id){if(!confirm('¿Eliminar este registro? Esta acción no se puede deshacer.'))return;try{const r=(data[k]||[]).find(x=>x.id===id);const {error}=await sb.from(k).delete().eq('id',id);if(error)throw error;if(k==='documents'&&r?.file_path){const out=await sb.storage.from('sise-documents').remove([r.file_path]);if(out.error)toast('Registro eliminado, pero no se pudo borrar el archivo: '+out.error.message)}toast('Registro eliminado');await load()}catch(e){toast(e.message)}}
-function csv(k,rows){const keys=k==='schools'?cols[k]:['school_id',...cols[k]];const txt='\uFEFF'+[keys.join(';'),...rows.map(r=>keys.map(c=>'"'+String(r[c]??'').replaceAll('"','""')+'"').join(';'))].join('\r\n');const url=URL.createObjectURL(new Blob([txt],{type:'text/csv;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=`SISE_${k}_${today()}.csv`;a.click();URL.revokeObjectURL(url)}
-function uploadDialog(){editing=null;$('#modalTitle').textContent='Adjuntar documento';$('#formFields').innerHTML=`<div class="wide"><label>Escuela<select id="docSchool">${schools.map(s=>`<option value="${s.id}" ${s.id===filter?'selected':''}>${esc(s.code)} · ${esc(s.name)}</option>`).join('')}</select></label></div><div class="wide"><label>Título<input id="docTitle" required maxlength="200"></label></div><div><label>Tipo<select id="docType"><option value="informe">Informe de visita</option><option value="acta">Acta</option><option value="planilla">Planilla</option><option value="otro">Otro</option></select></label></div><div class="wide"><label>Archivo (PDF, Word, JPG o PNG, máximo 10 MB)<input id="docFile" type="file" accept=".pdf,.doc,.docx,.png,.jpg,.jpeg" required></label></div>`;$('#modal').showModal()}
-async function saveDocument(){const file=$('#docFile')?.files?.[0];if(!file)throw Error('Seleccioná un archivo');const allowed={'application/pdf':'pdf','application/msword':'doc','application/vnd.openxmlformats-officedocument.wordprocessingml.document':'docx','image/png':'png','image/jpeg':'jpg'};const ext=allowed[file.type];if(!ext||file.size>10485760)throw Error('Tipo de archivo no admitido o supera 10 MB');const school_id=$('#docSchool').value;const path=`${school_id}/${crypto.randomUUID()}.${ext}`;const up=await sb.storage.from('sise-documents').upload(path,file,{contentType:file.type,upsert:false});if(up.error)throw up.error;const ins=await sb.from('documents').insert({school_id,title:$('#docTitle').value,document_type:$('#docType').value,file_path:path,mime_type:file.type});if(ins.error){await sb.storage.from('sise-documents').remove([path]);throw ins.error}}
-const oldSubmit=$('#recordForm').onsubmit;$('#recordForm').onsubmit=async e=>{if(editing)return oldSubmit(e);e.preventDefault();try{await saveDocument();$('#modal').close();toast('Documento guardado');await load()}catch(err){toast('Error: '+err.message)}};
-async function openDoc(r){const {data:d,error}=await sb.storage.from('sise-documents').createSignedUrl(r.file_path,60);if(error)return toast(error.message);window.open(d.signedUrl,'_blank','noopener,noreferrer')}
-$('#cancel').onclick=()=>$('#modal').close();$('#schoolFilter').onchange=e=>{filter=e.target.value;render()};$('#refresh').onclick=()=>load().catch(e=>toast(e.message));$('#logout').onclick=async()=>{await sb.auth.signOut();location.reload()};
-$('#loginForm').onsubmit=async e=>{e.preventDefault();try{ensure();const {error}=await sb.auth.signInWithPassword({email:$('#email').value,password:$('#password').value});if(error)throw error;await start()}catch(err){$('#loginError').textContent=err.message;$('#loginError').classList.remove('hidden')}};
-async function start(){ensure();const {data:auth}=await sb.auth.getUser();user=auth.user;if(!user)return;const {data:p,error}=await sb.from('profiles').select('role,full_name').eq('id',user.id).single();if(error||!p)throw Error('Cuenta sin perfil autorizado. Pedí al administrador que habilite tu usuario.');role=p.role;$('#userInfo').textContent=`${p.full_name||user.email} · ${role}`;$('#login').classList.add('hidden');$('#app').classList.remove('hidden');await load()}
-if(sb)start().catch(e=>{toast(e.message);$('#login').classList.remove('hidden');$('#app').classList.add('hidden')});
-</script></body></html>
+
+const columns={
+  visits:["visit_date","title","visit_type","guidance"],
+  incidents:["incident_date","category","severity","status"],
+  metrics:["period","enrollment","attendance_pct","chronic_absence_count"],
+  strikes:["strike_date","total_teachers","adhering_teachers","affected_sections"],
+  agreements:["title","dimension","due_date","status"],
+  documents:["title","document_type","created_at"]
+};
+
+const names={
+  visit_date:"Fecha",title:"Título",visit_type:"Tipo",
+  guidance:"Orientaciones",incident_date:"Fecha",
+  category:"Categoría",severity:"Atención",status:"Estado",
+  period:"Período",enrollment:"Matrícula",
+  attendance_pct:"Asistencia (%)",
+  chronic_absence_count:"Inasistencias reiteradas",
+  strike_date:"Fecha",total_teachers:"Docentes",
+  adhering_teachers:"Adherentes",
+  affected_sections:"Secciones afectadas",
+  dimension:"Dimensión",due_date:"Plazo",
+  document_type:"Tipo",created_at:"Carga"
+};
+
+function notify(message){
+  $("#toast").textContent=message;
+  $("#toast").style.display="block";
+  setTimeout(()=>$("#toast").style.display="none",5000);
+}
+
+function canEdit(){
+  return role==="admin"||role==="inspector";
+}
+
+function schoolName(id){
+  return schools.find(s=>s.id===id)?.code||"—";
+}
+
+function rowsFor(table,id=filter){
+  return (data[table]||[]).filter(r=>
+    id==="all"||r.school_id===id
+  );
+}
+
+function reportsFor(id){
+  return rowsFor("supervision_reports",id)
+    .sort((a,b)=>b.report_date.localeCompare(a.report_date));
+}
+
+function findingsFor(id){
+  return reportsFor(id).flatMap(r=>
+    (r.findings||[])
+      .filter(f=>f.confirmed)
+      .map(f=>({...f,report:r}))
+  );
+}
+
+async function load(){
+  if(!sb)throw Error("Falta configurar config.js");
+
+  const results=await Promise.all(tables.map(async t=>{
+    const {data:rows,error}=await sb.from(t).select("*");
+    if(error)throw Error(t+": "+error.message);
+    return [t,rows||[]];
+  }));
+
+  data=Object.fromEntries(results);
+  schools=data.schools.sort((a,b)=>
+    a.code.localeCompare(b.code,"es",{numeric:true})
+  );
+
+  $("#schoolFilter").innerHTML=
+    '<option value="all">Todas las escuelas</option>'+
+    schools.map(s=>
+      `<option value="${s.id}">${esc(s.code)} · ${esc(s.name)}</option>`
+    ).join("");
+
+  if(filter!=="all"&&!schools.some(s=>s.id===filter))
+    filter="all";
+
+  $("#schoolFilter").value=filter;
+  render();
+}
+
+function navigation(){
+  const items=[
+    ["dashboard","Panel general"],
+    ["schools","Carpetas por escuela"],
+    ["reports","Informes de supervisión"],
+    ["improvements","Áreas de mejora"],
+    ...Object.entries(labels)
+  ];
+
+  $("#nav").innerHTML=items.map(([key,label])=>
+    `<button data-page="${key}" class="${page===key?"active":""}">
+      ${esc(label)}
+    </button>`
+  ).join("");
+
+  $("#nav").querySelectorAll("[data-page]").forEach(b=>{
+    b.onclick=()=>{
+      page=b.dataset.page;
+      selectedSchool=null;
+      render();
+    };
+  });
+}
+
+function render(){
+  navigation();
+
+  const titles={
+    dashboard:"Panel supervisivo",
+    schools:"Carpetas institucionales",
+    reports:"Informes de supervisión",
+    improvements:"Áreas de mejora",
+    ...labels
+  };
+
+  $("#pageTitle").textContent=titles[page]||"SISE";
+
+  if(page==="dashboard")return dashboard();
+  if(page==="schools")return schoolFolders();
+  if(page==="reports")return reportsPage();
+  if(page==="improvements")return improvements();
+  if(labels[page])return recordsPage(page);
+}
+
+function dashboard(){
+  const ids=filter==="all"
+    ?schools.map(s=>s.id):[filter];
+
+  const reports=rowsFor("supervision_reports");
+  const agreements=rowsFor("agreements");
+  const incidents=rowsFor("incidents");
+
+  const validated=ids.flatMap(id=>findingsFor(id));
+
+  const latest=ids.map(id=>
+    rowsFor("metrics",id)
+      .sort((a,b)=>b.period.localeCompare(a.period))[0]
+  ).filter(Boolean);
+
+  const attendance=latest.filter(m=>m.attendance_pct!=null);
+  const average=attendance.length
+    ?(attendance.reduce((a,m)=>a+Number(m.attendance_pct),0)
+      /attendance.length).toFixed(1)+"%"
+    :"Sin datos";
+
+  $("#content").innerHTML=`
+    <div class="cards">
+      <div class="card">Escuelas<strong>${ids.length}</strong></div>
+      <div class="card">Informes<strong>${reports.length}</strong></div>
+      <div class="card">Áreas validadas<strong>${validated.length}</strong></div>
+      <div class="card">Acuerdos pendientes
+        <strong>${agreements.filter(a=>a.status!=="cumplido").length}</strong>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Seguimiento institucional</h2>
+      <p>Asistencia promedio del último registro: <b>${average}</b></p>
+      <p class="muted">
+        Promedio simple de escuelas con datos; los períodos
+        pueden diferir y no está ponderado por matrícula.
+      </p>
+      <p>Situaciones de convivencia abiertas:
+        <b>${incidents.filter(i=>i.status!=="cerrado").length}</b>
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2>Áreas de mejora identificadas</h2>
+      ${validated.length
+        ?validated.slice(0,20).map(f=>`
+          <p>
+            <span class="pill warn">${esc(schoolName(f.report.school_id))}</span>
+            <b>${esc(f.dimension)}</b>: ${esc(f.summary)}
+          </p>`).join("")
+        :'<p class="muted">Aún no hay áreas validadas.</p>'}
+    </div>
+
+    <div class="panel">
+      <h2>Acceso a los legajos</h2>
+      <button id="goSchools">Abrir carpetas institucionales</button>
+    </div>
+  `;
+
+  $("#goSchools").onclick=()=>{
+    page="schools";
+    render();
+  };
+}
+
+function schoolFolders(){
+  const list=filter==="all"
+    ?schools:schools.filter(s=>s.id===filter);
+
+  $("#content").innerHTML=`
+    <div class="notice">
+      Cada escuela dispone de un legajo digital propio.
+      Los informes y registros quedan asociados a la institución.
+    </div>
+    <div class="schoolgrid">
+      ${list.map(s=>`
+        <button class="schoolcard" data-school="${s.id}">
+          <span style="font-size:30px">📁</span>
+          <strong>${esc(s.code)}</strong>
+          <span>${esc(s.name)}</span>
+          <small>${reportsFor(s.id).length} informes de supervisión</small>
+          <small>${findingsFor(s.id).length} áreas validadas</small>
+        </button>
+      `).join("")}
+    </div>
+    <div id="schoolDetail"></div>
+  `;
+
+  $("#content").querySelectorAll("[data-school]").forEach(b=>{
+    b.onclick=()=>schoolDetail(b.dataset.school);
+  });
+
+  if(selectedSchool&&list.some(s=>s.id===selectedSchool))
+    schoolDetail(selectedSchool);
+  else if(filter!=="all")
+    schoolDetail(filter);
+}
+
+function schoolDetail(id){
+  const s=schools.find(x=>x.id===id);
+  if(!s)return;
+  selectedSchool=id;
+
+  const reports=reportsFor(id);
+  const findings=findingsFor(id);
+  const agreements=rowsFor("agreements",id);
+  const metrics=rowsFor("metrics",id)
+    .sort((a,b)=>b.period.localeCompare(a.period));
+  const incidents=rowsFor("incidents",id);
+  const visits=rowsFor("visits",id);
+  const strikes=rowsFor("strikes",id);
+
+  $("#schoolDetail").innerHTML=`
+    <section class="panel" style="margin-top:22px">
+      <h2>📁 Legajo ${esc(s.code)} · ${esc(s.name)}</h2>
+      <p><b>Localidad:</b> ${esc(s.locality||"Sin registrar")}</p>
+      <p><b>Dirección:</b> ${esc(s.director||"Sin registrar")}</p>
+      <p><b>Turnos:</b> ${esc(s.shifts||"Sin registrar")}</p>
+
+      <div class="toolbar">
+        ${canEdit()?'<button id="addReport">+ Cargar informe</button>':""}
+        <button class="secondary" data-go="metrics">Matrícula y asistencia</button>
+        <button class="secondary" data-go="agreements">Acuerdos</button>
+        <button class="secondary" data-go="incidents">Convivencia</button>
+      </div>
+
+      <h3>Informes de supervisión (${reports.length})</h3>
+      ${reports.map(r=>`
+        <div class="row">
+          <div>
+            <b>${esc(r.title)}</b>
+            <div class="muted">
+              ${pretty(r.report_date)} ·
+              ${esc(r.source_filename||"Texto incorporado")}
+            </div>
+          </div>
+          <button class="secondary" data-review="${r.id}">
+            Analizar / revisar
+          </button>
+        </div>
+      `).join("")||'<p class="muted">Sin informes cargados.</p>'}
+
+      <h3>Áreas de mejora validadas (${findings.length})</h3>
+      ${findings.map(f=>`
+        <div class="review">
+          <span class="pill warn">${esc(f.dimension)}</span>
+          <p>${esc(f.summary)}</p>
+          <small>Fuente: ${esc(f.report.title)}</small>
+        </div>
+      `).join("")||'<p class="muted">Todavía no hay áreas validadas.</p>'}
+
+      <h3>Seguimiento institucional</h3>
+      <p>Visitas: ${visits.length} ·
+      Situaciones de convivencia: ${incidents.length} ·
+      Registros de paros: ${strikes.length}</p>
+
+      <h3>Acuerdos</h3>
+      ${agreements.map(a=>`
+        <p>${esc(a.title)} ·
+        <span class="pill">${esc(a.status)}</span></p>
+      `).join("")||'<p class="muted">Sin acuerdos cargados.</p>'}
+
+      <h3>Últimos indicadores</h3>
+      ${metrics[0]
+        ?`<p>Matrícula: ${esc(metrics[0].enrollment)} ·
+          Asistencia: ${esc(metrics[0].attendance_pct)}%</p>`
+        :'<p class="muted">Sin indicadores registrados.</p>'}
+    </section>
+  `;
+
+  $("#addReport")?.addEventListener("click",()=>reportForm(id));
+
+  $("#schoolDetail").querySelectorAll("[data-review]").forEach(b=>{
+    b.onclick=()=>reviewReport(b.dataset.review);
+  });
+
+  $("#schoolDetail").querySelectorAll("[data-go]").forEach(b=>{
+    b.onclick=()=>{
+      filter=id;
+      $("#schoolFilter").value=id;
+      page=b.dataset.go;
+      render();
+    };
+  });
+}
+
+function reportsPage(){
+  const reports=rowsFor("supervision_reports")
+    .sort((a,b)=>b.report_date.localeCompare(a.report_date));
+
+  $("#content").innerHTML=`
+    <div class="notice">
+      Los informes permiten detectar temas para revisión.
+      Una coincidencia de palabras no demuestra una dificultad.
+      La validación corresponde a la Supervisión.
+    </div>
+
+    <div class="toolbar">
+      ${canEdit()&&schools.length
+        ?'<button id="newReport">+ Cargar informe de supervisión</button>'
+        :""}
+    </div>
+
+    <div class="panel">
+      ${reports.map(r=>`
+        <div class="row">
+          <div>
+            <b>${esc(r.title)}</b>
+            <div class="muted">
+              ${esc(schoolName(r.school_id))} ·
+              ${pretty(r.report_date)}
+            </div>
+          </div>
+          <button class="secondary" data-review="${r.id}">
+            Revisar informe
+          </button>
+        </div>
+      `).join("")||'<p>No hay informes registrados.</p>'}
+    </div>
+  `;
+
+  $("#newReport")?.addEventListener("click",()=>reportForm(
+    filter==="all"?null:filter
+  ));
+
+  $("#content").querySelectorAll("[data-review]").forEach(b=>{
+    b.onclick=()=>reviewReport(b.dataset.review);
+  });
+}
+
+// Detección preliminar de temas.
+// No interpreta el sentido pedagógico completo del informe.
+const patterns={
+  "Enseñanza":[
+    "enseñanza","intervenciones docentes","diversificación",
+    "secuencia didáctica","planificación","propuesta didáctica"
+  ],
+  "Alfabetización":[
+    "alfabetización","lectura","escritura",
+    "situaciones de lectura","producciones escritas"
+  ],
+  "Matemática":[
+    "matemática","resolución de problemas",
+    "cálculo","numeración"
+  ],
+  "Trayectorias educativas":[
+    "trayectoria","inasistencias","revinculación",
+    "continuidad pedagógica","intensificación"
+  ],
+  "Convivencia":[
+    "convivencia","conflicto","acuerdos de convivencia",
+    "intervención institucional"
+  ],
+  "Gestión institucional":[
+    "equipo directivo","seguimiento","mesa de trabajo",
+    "acuerdos institucionales","registro institucional"
+  ],
+  "Inclusión educativa":[
+    "inclusión","ppi","configuraciones de apoyo",
+    "propuesta pedagógica de inclusión"
+  ]
+};
+
+function normalizeText(t){
+  return t.normalize("NFD")
+    .replace(/[\u0300-\u036f]/g,"")
+    .toLowerCase();
+}
+
+function extractSignals(text){
+  const paragraphs=text.split(/\n+/)
+    .map(x=>x.trim()).filter(Boolean);
+
+  const found=[];
+
+  for(const [dimension,words] of Object.entries(patterns)){
+    const matches=paragraphs.filter(p=>
+      words.some(w=>
+        normalizeText(p).includes(normalizeText(w))
+      )
+    ).slice(0,4);
+
+    if(matches.length){
+      found.push({
+        dimension,
+        summary:"Tema identificado para revisión contextual",
+        evidence:matches.map(x=>x.slice(0,450)).join(" […] "),
+        confirmed:false
+      });
+    }
+  }
+
+  return found;
+}
+
+function reportForm(id){
+  if(!canEdit())return;
+
+  modalAction={type:"newReport"};
+  $("#modalTitle").textContent="Cargar informe de supervisión";
+
+  $("#modalBody").innerHTML=`
+    <div class="formgrid">
+      <div class="wide">
+        <label>Escuela</label>
+        <select id="repSchool" required>
+          ${schools.map(s=>`
+            <option value="${s.id}" ${s.id===id?"selected":""}>
+              ${esc(s.code)} · ${esc(s.name)}
+            </option>
+          `).join("")}
+        </select>
+      </div>
+
+      <div>
+        <label>Fecha del informe</label>
+        <input id="repDate" type="date" value="${today()}" required>
+      </div>
+
+      <div>
+        <label>Título o motivo</label>
+        <input id="repTitle" maxlength="250" required>
+      </div>
+
+      <div class="wide">
+        <label>Archivo PDF, DOCX o TXT (opcional)</label>
+        <input id="repFile" type="file"
+          accept=".pdf,.docx,.txt">
+      </div>
+
+      <div class="wide">
+        <label>Texto del informe</label>
+        <textarea id="repText" rows="12"
+          placeholder="Pegá el informe completo aquí, o seleccioná un archivo."></textarea>
+      </div>
+
+      <div class="wide muted">
+        Los PDF escaneados sin texto requieren transcripción.
+        El contenido textual se almacenará en Supabase.
+        Evitá incluir datos personales sensibles innecesarios.
+      </div>
+    </div>
+  `;
+
+  $("#modal").showModal();
+}
+
+async function extractFile(file){
+  if(file.size>10485760)
+    throw Error("El archivo supera los 10 MB.");
+
+  const ext=file.name.split(".").pop().toLowerCase();
+
+  if(ext==="txt")return file.text();
+
+  if(ext==="docx"){
+    const mammoth=await import(
+      "https://cdn.jsdelivr.net/npm/mammoth@1.9.1/+esm"
+    );
+    const result=await mammoth.extractRawText({
+      arrayBuffer:await file.arrayBuffer()
+    });
+    return result.value;
+  }
+
+  if(ext==="pdf"){
+    const pdfjs=await import(
+      "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.mjs"
+    );
+
+    pdfjs.GlobalWorkerOptions.workerSrc=
+      "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.mjs";
+
+    const pdf=await pdfjs.getDocument({
+      data:new Uint8Array(await file.arrayBuffer())
+    }).promise;
+
+    const parts=[];
+
+    for(let n=1;n<=pdf.numPages;n++){
+      const p=await pdf.getPage(n);
+      const content=await p.getTextContent();
+      parts.push(content.items.map(x=>x.str||"").join(" "));
+    }
+
+    return parts.join("\n\n");
+  }
+
+  throw Error("Formato no admitido.");
+}
+
+async function saveReport(){
+  const file=$("#repFile").files[0];
+  let text=$("#repText").value.trim();
+
+  if(file){
+    const extracted=(await extractFile(file)).trim();
+    if(extracted)text=[text,extracted].filter(Boolean).join("\n\n");
+  }
+
+  if(text.length<60)
+    throw Error("El informe necesita al menos 60 caracteres de texto.");
+
+  const payload={
+    school_id:$("#repSchool").value,
+    title:$("#repTitle").value.trim(),
+    report_date:$("#repDate").value,
+    report_text:text,
+    source_filename:file?.name||null,
+    findings:extractSignals(text)
+  };
+
+  if(!payload.title||!payload.report_date)
+    throw Error("Completá título y fecha.");
+
+  const {error}=await sb.from("supervision_reports").insert(payload);
+  if(error)throw error;
+}
+
+function reviewReport(id){
+  const r=(data.supervision_reports||[]).find(x=>x.id===id);
+  if(!r)return;
+
+  modalAction={type:"review",record:r};
+  $("#modalTitle").textContent="Análisis supervisivo";
+
+  const findings=r.findings||[];
+
+  $("#modalBody").innerHTML=`
+    <p><b>${esc(schoolName(r.school_id))}</b> ·
+    ${esc(r.title)} · ${pretty(r.report_date)}</p>
+
+    <div class="notice">
+      Revisá el contexto de cada fragmento. Validá únicamente
+      las áreas de mejora fundamentadas en evidencias.
+    </div>
+
+    ${findings.map((f,i)=>`
+      <div class="review">
+        <label>
+          <input type="checkbox" data-check="${i}"
+            style="width:auto"
+            ${f.confirmed?"checked":""}>
+          ${esc(f.dimension)} — Validar como área de mejora
+        </label>
+
+        <p class="muted">${esc(f.evidence)}</p>
+
+        <label>Fundamentación y orientación supervisiva</label>
+        <textarea data-summary="${i}">${esc(f.summary)}</textarea>
+      </div>
+    `).join("")||`
+      <p>No se identificaron coincidencias automáticas.
+      El informe puede revisarse manualmente.</p>
+    `}
+
+    <details>
+      <summary>Consultar texto completo del informe</summary>
+      <pre>${esc(r.report_text)}</pre>
+    </details>
+  `;
+
+  $("#modal").showModal();
+}
+
+async function saveReview(){
+  const r=modalAction.record;
+
+  const findings=(r.findings||[]).map((f,i)=>({
+    ...f,
+    confirmed:!!$(`[data-check="${i}"]`)?.checked,
+    summary:$(`[data-summary="${i}"]`)?.value.trim()||f.summary
+  }));
+
+  const {error}=await sb.from("supervision_reports")
+    .update({findings})
+    .eq("id",r.id);
+
+  if(error)throw error;
+}
+
+function improvements(){
+  const ids=filter==="all"
+    ?schools.map(s=>s.id):[filter];
+
+  $("#content").innerHTML=`
+    <div class="notice">
+      Las áreas presentadas fueron validadas por la Supervisión.
+      No constituyen una calificación automática de la escuela.
+    </div>
+
+    ${ids.map(id=>{
+      const s=schools.find(x=>x.id===id);
+      const found=findingsFor(id);
+
+      return `
+        <section class="panel">
+          <h2>${esc(s?.code||"")} · ${esc(s?.name||"")}</h2>
+          ${found.map(f=>`
+            <div class="review">
+              <span class="pill warn">${esc(f.dimension)}</span>
+              <p>${esc(f.summary)}</p>
+              <small>Informe: ${esc(f.report.title)}</small>
+            </div>
+          `).join("")||'<p class="muted">Sin áreas validadas.</p>'}
+        </section>
+      `;
+    }).join("")}
+  `;
+}
+
+function recordsPage(table){
+  const rows=rowsFor(table);
+  const cols=columns[table]||[];
+
+  $("#content").innerHTML=`
+    <div class="panel tablewrap">
+      <h2>${esc(labels[table])}</h2>
+      <p class="muted">
+        Registros institucionales existentes en Supabase.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Escuela</th>
+            ${cols.map(c=>`<th>${esc(names[c]||c)}</th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r=>`
+            <tr>
+              <td>${esc(schoolName(r.school_id))}</td>
+              ${cols.map(c=>`
+                <td>${esc(r[c])}</td>
+              `).join("")}
+            </tr>
+          `).join("")||`
+            <tr><td colspan="10">Sin registros.</td></tr>
+          `}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+$("#modalForm").onsubmit=async e=>{
+  e.preventDefault();
+
+  if(!canEdit())return;
+
+  const button=e.currentTarget.querySelector('[type="submit"]');
+  button.disabled=true;
+
+  try{
+    if(modalAction?.type==="newReport")
+      await saveReport();
+
+    if(modalAction?.type==="review")
+      await saveReview();
+
+    $("#modal").close();
+    notify("Información guardada correctamente.");
+    await load();
+  }catch(err){
+    notify("Error: "+err.message);
+  }finally{
+    button.disabled=false;
+  }
+};
+
+$("#cancel").onclick=()=>$("#modal").close();
+
+$("#schoolFilter").onchange=e=>{
+  filter=e.target.value;
+  selectedSchool=null;
+  render();
+};
+
+$("#refresh").onclick=()=>load().catch(e=>notify(e.message));
+
+$("#logout").onclick=async()=>{
+  await sb.auth.signOut();
+  location.reload();
+};
+
+$("#loginForm").onsubmit=async e=>{
+  e.preventDefault();
+  $("#loginError").textContent="";
+
+  try{
+    if(!sb)throw Error("Falta configurar config.js");
+
+    const {error}=await sb.auth.signInWithPassword({
+      email:$("#email").value,
+      password:$("#password").value
+    });
+
+    if(error)throw error;
+    await start();
+  }catch(err){
+    $("#loginError").textContent=err.message;
+  }
+};
+
+async function start(){
+  if(!sb)throw Error("Falta la conexión con Supabase.");
+
+  const {data:auth,error:authError}=await sb.auth.getUser();
+  if(authError||!auth.user)return;
+
+  user=auth.user;
+
+  const {data:profile,error}=await sb.from("profiles")
+    .select("role,full_name")
+    .eq("id",user.id)
+    .single();
+
+  if(error||!profile)
+    throw Error("La cuenta no tiene perfil autorizado.");
+
+  role=profile.role;
+
+  $("#userInfo").textContent=
+    (profile.full_name||user.email)+" · "+role;
+
+  $("#login").classList.add("hidden");
+  $("#app").classList.remove("hidden");
+
+  await load();
+}
+
+if(sb){
+  start().catch(err=>{
+    notify(err.message);
+    $("#login").classList.remove("hidden");
+    $("#app").classList.add("hidden");
+  });
+}
+</script>
+</body>
+</html>
